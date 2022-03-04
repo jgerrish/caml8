@@ -33,38 +33,62 @@ let draw_graphics cpu renderer =
     );
   Sdl.render_present renderer
 
-let handle_event cpu =
+(** [handle_emulator_scancode cpu scancode]
+    Handle key scancodes while the emulator CPU is running *)
+let handle_emulator_scancode cpu scancode =
   let set_some_key cpu x = Cpu.set_key cpu (Some (Uint8.of_int x)) in
+  begin match Sdl.Scancode.enum scancode with
+    | `K1     -> set_some_key cpu 0x1
+    | `K2     -> set_some_key cpu 0x2
+    | `K3     -> set_some_key cpu 0x3
+    | `K4     -> set_some_key cpu 0xC
+    | `Q      -> set_some_key cpu 0x4
+    | `W      -> set_some_key cpu 0x5
+    | `E      -> set_some_key cpu 0x6
+    | `R      -> set_some_key cpu 0xD
+    | `A      -> set_some_key cpu 0x7
+    | `S      -> set_some_key cpu 0x8
+    | `D      -> set_some_key cpu 0x9
+    | `F      -> set_some_key cpu 0xE
+    | `Z      -> set_some_key cpu 0xA
+    | `X      -> set_some_key cpu 0x0
+    | `C      -> set_some_key cpu 0xB
+    | `V      -> set_some_key cpu 0xF
+    | `Space  -> Cpu.toggle_state cpu
+    | `Escape -> Caml.exit 0
+    | _       -> ()
+  end
+
+(** [handle_emulator_scancode cpu scancode]
+    Handle key scancodes while the emulator CPU is stopped *)
+let handle_debugger_scancode cpu scancode =
+  begin match Sdl.Scancode.enum scancode with
+    | `H        -> Debugger.print_help ()
+    | `C        -> Debugger.continue cpu
+    | `S        -> Debugger.step cpu
+    | `P        -> Cpu.dump_state cpu
+    | `Space    -> Cpu.toggle_state cpu
+    | `Escape   -> Caml.exit 0
+    | _         -> ()
+  end
+
+let handle_event cpu =
   let set_none_key cpu = Cpu.set_key cpu None in
   let event = Sdl.Event.create () in
   if Sdl.poll_event (Some event) then begin
-    match Sdl.Event.(get event typ |> enum) with
-    | `Key_down ->
-      let scancode = Sdl.Event.(get event keyboard_scancode) in
-      begin match Sdl.Scancode.enum scancode with
-        | `K1     -> set_some_key cpu 0x1
-        | `K2     -> set_some_key cpu 0x2
-        | `K3     -> set_some_key cpu 0x3
-        | `K4     -> set_some_key cpu 0xC
-        | `Q      -> set_some_key cpu 0x4
-        | `W      -> set_some_key cpu 0x5
-        | `E      -> set_some_key cpu 0x6
-        | `R      -> set_some_key cpu 0xD
-        | `A      -> set_some_key cpu 0x7
-        | `S      -> set_some_key cpu 0x8
-        | `D      -> set_some_key cpu 0x9
-        | `F      -> set_some_key cpu 0xE
-        | `Z      -> set_some_key cpu 0xA
-        | `X      -> set_some_key cpu 0x0
-        | `C      -> set_some_key cpu 0xB
-        | `V      -> set_some_key cpu 0xF
-        | `Escape -> Caml.exit 0
-        | _       -> ()
-      end
-    | `Key_up -> set_none_key cpu
-    | `Quit   -> Caml.exit 0
-    | _       -> ()
-  end
+      match Sdl.Event.(get event typ |> enum) with
+      | `Key_down ->
+         let scancode = Sdl.Event.(get event keyboard_scancode) in
+         (* Different key behaviors for the debugger and the emulator *)
+         begin match Cpu.cpu_state cpu with
+         | Running -> handle_emulator_scancode cpu scancode
+         | Stopped -> handle_debugger_scancode cpu scancode
+         end
+      | `Key_up -> set_none_key cpu
+      | `Quit   -> Caml.exit 0
+      | _       -> ()
+    end
+
 
 
 let () =
@@ -76,6 +100,8 @@ let () =
   let rom = In_channel.read_all argv.(1) |> Bytes.of_string in
   let cpu = Cpu.create ~rom in
   let renderer = init_graphics () in
+  (* Set a breakpoint at the first address *)
+  (* Cpu.set_breakpoint cpu (Uint16.of_int 0x200); *)
   while true do
     if Float.((Unix.gettimeofday() -. !last_tick) >= 1./.360.) then begin
       Cpu.tick cpu;

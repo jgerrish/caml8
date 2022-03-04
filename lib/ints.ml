@@ -53,6 +53,9 @@ module Uint16 : Ints_intf.S = struct
   module B = (val make_basics_module 0xffff : Ints_intf.Basics)
   include B
 
+  let compare t1 t2 =
+    Stdlib.compare t1 t2
+
   module Infix = MakeInfix(B)
   include Infix
 end
@@ -60,3 +63,7 @@ end
 type uint8 = Uint8.t
 
 type uint16 = Uint16.t
+
+module Uint16Set = Set.Make(Uint16)
+
+type uint16set = Uint16Set.t

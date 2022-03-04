@@ -1,6 +1,8 @@
 open Base
 open Ints
 
+type state = Stopped | Running
+
 type t = {
   memory : Memory.t;
   registers : Registers.t;
@@ -10,8 +12,15 @@ type t = {
   mutable dt : uint8;
   mutable st : uint8;
   mutable key_state : uint8 option;
+  mutable cpu_state : state;
+  mutable breakpoints : uint16set;
   gfx : bool array;
 }
+
+let cpu_state_to_string s =
+  match s with
+  | Running -> "running"
+  | Stopped -> "stopped"
 
 let create ~rom =
   let rom_base = Uint16.of_int 0x200 in
@@ -27,6 +36,8 @@ let create ~rom =
     dt = Uint8.zero;
     st = Uint8.zero;
     key_state = None;
+    cpu_state = Running;
+    breakpoints = Uint16Set.empty;
     gfx = Array.create ~len:(64 * 32) false;
   }
 
@@ -215,20 +226,58 @@ let execute_instruction (t : t) (instruction : Instruction.t) : next_pc =
     done;
     Next
 
-let tick t =
+(* [step t] Execute the current instruction and step to the next instruction *)
+let step t =
   let instruction = Instruction.read ~memory:t.memory ~pc:t.pc in
   let next_pc =execute_instruction t instruction in
-  (* Stdio.printf "%s\n" (Instruction.to_string instruction);
-   * Stdio.printf "I=%x, pc=%x, sp=%x, " (t.i |> Uint16.to_int) (t.pc |> Uint16.to_int) (t.sp |> Uint16.to_int);
-   * Stdio.printf "%s\n" (Registers.dump t.registers);
-   * Stdio.printf "key_state=%x\n" (t.key_state |> Option.value ~default:(Uint8.of_int (-1)) |> Uint8.to_int) *)
-
   t.dt <- Uint8.(if (compare t.dt zero) = 0 then zero else t.dt - one);
   match next_pc with
   | Next -> t.pc <- Uint16.(t.pc + of_int 2)
   | Skip -> t.pc <- Uint16.(t.pc + of_int 4)
   | Jump addr -> t.pc <- addr
 
+let tick t =
+  match t.cpu_state with
+  | Stopped -> ()
+  | Running ->
+     if Uint16Set.mem t.pc t.breakpoints then begin
+       Stdio.printf "Stopped on breakpoint\n";
+       t.cpu_state <- Stopped
+       end else
+       step t
+
 let get_gfx t = t.gfx
 
 let set_key t k = t.key_state <- k
+
+let cpu_state t =
+  t.cpu_state
+
+let run t =
+  t.cpu_state <- Running
+
+let stop t =
+  t.cpu_state <- Stopped
+
+let toggle_state t =
+  match t.cpu_state with
+  | Stopped -> t.cpu_state <- Running
+  | Running -> t.cpu_state <- Stopped
+
+let dump_state t =
+  let instruction = Instruction.read ~memory:t.memory ~pc:t.pc in
+  Stdio.printf "%s\n" (Instruction.to_string instruction);
+  Stdio.printf "I=%x, pc=%x, sp=%x, " (t.i |> Uint16.to_int) (t.pc |> Uint16.to_int) (t.sp |> Uint16.to_int);
+  Stdio.printf "%s\n" (Registers.dump t.registers);
+  Stdio.printf "key_state=%x\n" (t.key_state |> Option.value ~default:(Uint8.of_int (-1)) |> Uint8.to_int);
+  (* Flush the output, so we can see it while a game is running or paused *)
+  Stdio.Out_channel.flush Stdio.Out_channel.stdout
+
+let set_breakpoint t breakpoint_address =
+  t.breakpoints <- Uint16Set.add breakpoint_address t.breakpoints
+
+let clear_breakpoint t breakpoint_address =
+  t.breakpoints <- Uint16Set.remove breakpoint_address t.breakpoints
+
+let pc t =
+  t.pc
